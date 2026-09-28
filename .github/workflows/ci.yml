@@ -1,0 +1,96 @@
+name: CI
+
+# Runs on every push and PR. This is the first environment in which this project
+# actually compiles: local development has no Maven/npm toolchain available.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (build + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned to 21 to match <java.version> in pom.xml. Do not raise this above
+      # the version Spring Boot 3.2.1 supports; newer JDKs break the Lombok
+      # release that Spring Boot 3.2.1 manages.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Show toolchain
+        run: java -version && mvn -v
+
+      # Integration tests run against H2 via the "test" profile and read the
+      # development jwt.secret default from application.yml, so no secrets are
+      # needed for this job.
+      - name: Build and test
+        run: mvn -B -ntp verify
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+          if-no-files-found: warn
+
+      - name: Upload jar
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-jar
+          path: target/*.jar
+          if-no-files-found: error
+
+  frontend:
+    name: Frontend (typecheck + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # `npm ci` requires a committed package-lock.json. None exists yet, so fall
+      # back to `npm install`. Commit the lockfile it generates to make builds
+      # reproducible, then this can become an unconditional `npm ci`.
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "::warning::No package-lock.json committed; falling back to npm install. Commit the lockfile for reproducible builds."
+            npm install
+          fi
+
+      # `npm run build` is `tsc && vite build`, so this fails on any type error.
+      - name: Typecheck and build
+        run: npm run build
+
+      - name: Upload dist
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          if-no-files-found: error

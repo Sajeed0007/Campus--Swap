@@ -1,0 +1,38 @@
+# AWS Amplify Hosting build settings.
+#
+# This repository is a monorepo: the Spring Boot backend lives at the root and
+# the React app lives in /frontend, so the "applications/appRoot" form is
+# required. Point the Amplify app at this file's repository root.
+#
+# Required Amplify environment variable:
+#   VITE_API_URL = https://<your-backend-host>
+# Vite inlines VITE_* values at build time, so this must be set in the Amplify
+# console BEFORE the build runs. Changing it later requires a redeploy.
+#
+# Required Amplify rewrite rule (console > Rewrites and redirects), without
+# which a refresh on any deep link such as /listings/5 returns 404:
+#   Source:  /<*>
+#   Target:  /index.html
+#   Type:    200 (Rewrite)
+version: 1
+applications:
+  - appRoot: frontend
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            # Prefer the reproducible install, but fall back when no lockfile
+            # has been committed yet. Commit package-lock.json to make builds
+            # deterministic and to let `npm ci` be used unconditionally.
+            - if [ -f package-lock.json ]; then npm ci; else npm install; fi
+        build:
+          commands:
+            # Runs `tsc && vite build`, so any type error fails the deploy.
+            - npm run build
+      artifacts:
+        baseDirectory: dist
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*

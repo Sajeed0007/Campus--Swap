@@ -1,0 +1,121 @@
+name: Deploy backend to Elastic Beanstalk
+
+# Deploys only after tests pass in this same run, so an untested jar can never
+# reach the environment.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+env:
+  JAR_NAME: application.jar
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build and test
+        run: mvn -B -ntp verify
+
+      - name: Assemble Beanstalk bundle
+        run: |
+          set -euo pipefail
+          mkdir -p bundle
+          # Exactly one jar is expected; fail loudly rather than guessing.
+          jar_count=$(find target -maxdepth 1 -name '*.jar' ! -name '*-sources.jar' | wc -l)
+          if [ "$jar_count" -ne 1 ]; then
+            echo "Expected exactly 1 jar in target/, found $jar_count" >&2
+            exit 1
+          fi
+          cp "$(find target -maxdepth 1 -name '*.jar' ! -name '*-sources.jar')" "bundle/${JAR_NAME}"
+          cp Procfile bundle/Procfile
+          cd bundle && zip -r ../deploy.zip . && cd ..
+          unzip -l deploy.zip
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: eb-bundle
+          path: deploy.zip
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+
+    # Attach required reviewers / secrets to this environment in repo settings.
+    environment: production
+
+    # Required for OIDC federation. Prefer this over storing long-lived
+    # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in repository secrets.
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Download bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: eb-bundle
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Upload application version to S3
+        id: upload
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_SHA::7}-$(date -u +%Y%m%d%H%M%S)"
+          KEY="campus-swap/${VERSION}.zip"
+          aws s3 cp deploy.zip "s3://${{ vars.EB_ARTIFACT_BUCKET }}/${KEY}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "key=${KEY}" >> "$GITHUB_OUTPUT"
+
+      - name: Create application version
+        run: |
+          set -euo pipefail
+          aws elasticbeanstalk create-application-version \
+            --application-name "${{ vars.EB_APPLICATION_NAME }}" \
+            --version-label "${{ steps.upload.outputs.version }}" \
+            --source-bundle S3Bucket="${{ vars.EB_ARTIFACT_BUCKET }}",S3Key="${{ steps.upload.outputs.key }}" \
+            --description "${GITHUB_SHA} by ${GITHUB_ACTOR}"
+
+      - name: Deploy to environment
+        run: |
+          set -euo pipefail
+          aws elasticbeanstalk update-environment \
+            --application-name "${{ vars.EB_APPLICATION_NAME }}" \
+            --environment-name "${{ vars.EB_ENVIRONMENT_NAME }}" \
+            --version-label "${{ steps.upload.outputs.version }}"
+
+      - name: Wait for environment to stabilise
+        run: |
+          aws elasticbeanstalk wait environment-updated \
+            --application-name "${{ vars.EB_APPLICATION_NAME }}" \
+            --environment-names "${{ vars.EB_ENVIRONMENT_NAME }}"
+
+      - name: Report health
+        run: |
+          aws elasticbeanstalk describe-environments \
+            --application-name "${{ vars.EB_APPLICATION_NAME }}" \
+            --environment-names "${{ vars.EB_ENVIRONMENT_NAME }}" \
+            --query 'Environments[0].{Status:Status,Health:Health,Version:VersionLabel}' \
+            --output table

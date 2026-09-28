@@ -1,0 +1,90 @@
+spring:
+  application:
+    name: campus-swap-backend
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/campusswap}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  jpa:
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:update}
+    show-sql: ${JPA_SHOW_SQL:true}
+    properties:
+      hibernate:
+        format_sql: true
+        use_sql_comments: true
+    open-in-view: false
+
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
+      enabled: true
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: always
+    include-binding-errors: always
+    # Never expose stack traces: "on_param" lets any caller add ?trace=true.
+    include-stacktrace: never
+    include-exception: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Expose only the health probe. Never expose env/configprops/beans in
+        # production: they disclose configuration and dependency internals.
+        include: health
+  endpoint:
+    health:
+      # Do not reveal component detail (database URLs, disk paths) to anonymous
+      # callers hitting the public probe.
+      show-details: never
+      show-components: never
+
+app:
+  cors:
+    # Comma-separated list. Override per environment, e.g.
+    # APP_CORS_ALLOWED_ORIGINS=https://campusswap.com
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+
+jwt:
+  # DEVELOPMENT DEFAULT ONLY. The application refuses to start with this value
+  # when the "prod" profile is active - see JwtSecretValidator.
+  secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+  expiration: ${JWT_EXPIRATION_MS:86400000}
+
+logging:
+  level:
+    com.campusswap: ${LOG_LEVEL_APP:DEBUG}
+    org.springframework.web: INFO
+    org.springframework.security: INFO
+    org.hibernate.SQL: ${LOG_LEVEL_SQL:DEBUG}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+  jpa:
+    hibernate:
+      # Never let Hibernate mutate a production schema.
+      ddl-auto: validate
+    show-sql: false
+
+logging:
+  level:
+    com.campusswap: INFO
+    org.springframework.security: WARN
+    org.hibernate.SQL: WARN

@@ -1,0 +1,14 @@
+target/
+frontend/
+.git/
+.gitignore
+.idea/
+.vscode/
+*.iml
+*.log
+README.md
+Dockerfile
+.dockerignore
+amplify.yml
+.env
+.env.*
