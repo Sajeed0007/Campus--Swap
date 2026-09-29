@@ -58,9 +58,13 @@ jobs:
   frontend:
     name: Frontend (typecheck + build)
     runs-on: ubuntu-latest
+
+    # Applies to `run` steps only. It does NOT affect `cache-dependency-path` or
+    # `upload-artifact` paths, which are always resolved from the repo root.
     defaults:
       run:
         working-directory: frontend
+
     steps:
       - uses: actions/checkout@v4
 
@@ -69,22 +73,23 @@ jobs:
         with:
           node-version: '20'
           cache: npm
+          # Repo-root-relative on purpose. If this glob matches nothing the action
+          # fails with "Some specified paths were not resolved, unable to cache
+          # dependencies", so frontend/package-lock.json must be committed.
           cache-dependency-path: frontend/package-lock.json
 
-      # `npm ci` requires a committed package-lock.json. None exists yet, so fall
-      # back to `npm install`. Commit the lockfile it generates to make builds
-      # reproducible, then this can become an unconditional `npm ci`.
+      # Requires a committed lockfile and installs exactly the pinned versions.
+      # Failing here on a missing or out-of-sync lockfile is intended: it keeps CI
+      # builds reproducible instead of silently resolving new versions.
       - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            echo "::warning::No package-lock.json committed; falling back to npm install. Commit the lockfile for reproducible builds."
-            npm install
-          fi
+        run: npm ci
 
-      # `npm run build` is `tsc && vite build`, so this fails on any type error.
-      - name: Typecheck and build
+      # Dedicated typecheck so a type error is reported before bundling starts.
+      # `npm run build` also runs tsc, but this gives a faster, clearer signal.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
         run: npm run build
 
       - name: Upload dist
