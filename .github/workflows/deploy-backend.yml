@@ -73,11 +73,54 @@ jobs:
         with:
           name: eb-bundle
 
+      # An undefined vars.*/secrets.* reference renders as an empty string rather
+      # than failing, which surfaces downstream as the opaque
+      # "Input required and not supplied: aws-region". Fail here instead and name
+      # everything that is missing in a single run.
+      #
+      # Only presence is reported, never values, so secrets stay out of the log.
+      # AWS_REGION is deliberately absent: the region is pinned literally in the
+      # credential step below, so it is no longer a required repository variable.
+      - name: Verify required variables and secrets
+        env:
+          CHECK_EB_APPLICATION_NAME: ${{ vars.EB_APPLICATION_NAME }}
+          CHECK_EB_ENVIRONMENT_NAME: ${{ vars.EB_ENVIRONMENT_NAME }}
+          CHECK_EB_ARTIFACT_BUCKET: ${{ vars.EB_ARTIFACT_BUCKET }}
+          CHECK_AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+        run: |
+          missing=0
+          for name in EB_APPLICATION_NAME EB_ENVIRONMENT_NAME EB_ARTIFACT_BUCKET; do
+            value="$(eval "printf '%s' \"\${CHECK_${name}:-}\"")"
+            if [ -z "$value" ]; then
+              echo "::error::Repository VARIABLE '${name}' is not set. Add it under Settings > Secrets and variables > Actions > Variables."
+              missing=1
+            else
+              echo "ok: variable ${name} is set"
+            fi
+          done
+          if [ -z "${CHECK_AWS_ROLE_ARN:-}" ]; then
+            echo "::error::Repository SECRET 'AWS_ROLE_ARN' is not set. Add it under Settings > Secrets and variables > Actions > Secrets."
+            missing=1
+          else
+            echo "ok: secret AWS_ROLE_ARN is set"
+          fi
+          if [ "$missing" -ne 0 ]; then
+            echo "Aborting before the AWS credential step."
+            exit 1
+          fi
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          # Region is pinned rather than read from a repository variable. A region
+          # is not a credential, so this is safe to commit, and it removes the
+          # empty-variable failure mode entirely.
+          #
+          # Every AWS resource this workflow touches must live in ap-south-1: the
+          # artifact bucket, the Beanstalk application, and its environment. A
+          # bucket in another region fails with PermanentRedirect / 301.
+          aws-region: ap-south-1
 
       - name: Upload application version to S3
         id: upload
