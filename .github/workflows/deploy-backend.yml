@@ -1,4 +1,4 @@
-name: Deploy backend to Elastic Beanstalk
+dir mvnw*name: Deploy backend to Elastic Beanstalk
 
 # Deploys only after tests pass in this same run, so an untested jar can never
 # reach the environment.

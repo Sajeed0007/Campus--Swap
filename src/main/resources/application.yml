@@ -79,8 +79,14 @@ spring:
       on-profile: prod
   jpa:
     hibernate:
-      # Never let Hibernate mutate a production schema.
-      ddl-auto: validate
+      # Defaults to "validate" so Hibernate never mutates a live schema, but stays
+      # overridable for the one-time bootstrap of an empty database. A brand-new
+      # RDS instance has no tables, and "validate" would abort startup with
+      # "Schema-validation: missing table [users]".
+      #
+      # First deploy only: set JPA_DDL_AUTO=update, boot once to create the
+      # schema, then REMOVE the variable so it reverts to validate.
+      ddl-auto: ${JPA_DDL_AUTO:validate}
     show-sql: false
 
 logging:
