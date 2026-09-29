@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { reportService } from '../../services/reportService';
-import Input from '../common/Input';
 import Textarea from '../common/Textarea';
 import Button from '../common/Button';
 import { X } from 'lucide-react';

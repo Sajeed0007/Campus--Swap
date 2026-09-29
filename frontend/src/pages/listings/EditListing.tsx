@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { listingService } from '../../services/listingService';
-import { Category, TransactionType, ItemCondition, Listing } from '../../types';
+import { Category, TransactionType, ItemCondition } from '../../types';
 import Input from '../../components/common/Input';
 import Textarea from '../../components/common/Textarea';
 import Select from '../../components/common/Select';
@@ -14,7 +14,6 @@ const EditListing: React.FC = () => {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [listing, setListing] = useState<Listing | null>(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -32,7 +31,8 @@ const EditListing: React.FC = () => {
   const fetchListing = async () => {
     try {
       const data = await listingService.getListingById(Number(id));
-      setListing(data);
+      // The fetched listing is only needed to seed the form, so it is not held in
+      // state. formData is the single source of truth for the edit form.
       setFormData({
         title: data.title,
         description: data.description,
